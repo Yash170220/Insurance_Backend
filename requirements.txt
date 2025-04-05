@@ -1,4 +1,6 @@
-streamlit
-google-generativeai
+fastapi
+uvicorn
 python-dotenv
-pdf2image
+google-generativeai==0.3.2
+PyMuPDF
+python-multipart
