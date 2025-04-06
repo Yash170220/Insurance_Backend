@@ -10,8 +10,7 @@ import os
 import json
 from typing import List
 from PIL import Image
-from transformers import AutoProcessor, AutoModelForCausalLM  # Hugging Face
-import torch # type: ignore
+
 
 # Load API key from .env file
 load_dotenv(dotenv_path="./.env")
@@ -32,9 +31,7 @@ app.add_middleware(
 document_memory = {}
 scheme_chat_memory = {"user": None, "schemes": [], "history": []}
 
-# Load SmolDocling model
-processor = AutoProcessor.from_pretrained("ds4sd/SmolDocling-256M-preview")
-model = AutoModelForCausalLM.from_pretrained("ds4sd/SmolDocling-256M-preview")
+
 
 # ------------------- Models -------------------
 
@@ -162,18 +159,47 @@ def chat_with_context(question, doc_text, history):
         print("[Chat ERROR]", str(e))
         return "An error occurred during chat."
 
-#Prescription using SmolDocling
+#Prescription 
 
-def analyze_prescription_with_smoldocling(file_bytes):
+def analyze_prescription_with_gemini(text):
     try:
-        image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
-        pixel_values = processor(images=image, return_tensors="pt").pixel_values
-        generated_ids = model.generate(pixel_values, max_new_tokens=512)
-        response = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        return response.strip()
+        prompt = f"""
+You are a medical assistant. Analyze the following prescription document and return a structured list of medications.
+
+For each medicine, include:
+- medicine name
+- a one-line description
+- when to take (like before breakfast, after lunch, etc.)
+- any special instructions
+
+Prescription text:
+{text}
+
+Return the result in JSON format as:
+[
+  {{
+    "medicine": "...",
+    "description": "...",
+    "timing": "...",
+    "instructions": "..."
+  }},
+  ...
+]
+"""
+
+        model = genai.GenerativeModel("gemini-1.5-pro")
+        response = model.generate_content(prompt)
+        content = response.text.strip()
+
+        # Optional: try parsing to check structure
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            return {"raw_text": content}
     except Exception as e:
-        print("[SmolDocling ERROR]", str(e))
-        return "An error occurred while analyzing prescription."
+        print("[Gemini Prescription ERROR]", str(e))
+        return {"error": "Gemini failed to analyze prescription."}
+
 
 #Journal
 
@@ -265,8 +291,17 @@ def chat(req: ChatRequest):
 async def analyze_prescription(file: UploadFile = File(...)):
     try:
         content = await file.read()
-        result = analyze_prescription_with_smoldocling(content)
+
+        # Step 1: Try extracting text using PyMuPDF
+        text = extract_text_from_pdf(content)
+
+        if not text:
+            return {"error": "Could not extract text from the uploaded prescription."}
+
+        # Step 2: Analyze using Gemini
+        result = analyze_prescription_with_gemini(text)
         return {"medications": result}
+
     except Exception as e:
         return {"error": str(e)}
 
