@@ -100,9 +100,14 @@ same as it is above one after other.Each new scheme info should start on new lin
 
         print("\n[Gemini RAW OUTPUT]\n", content)
 
-        if is_json(content):
-            return json.loads(content)
-        else:
+        if content.startswith("```json"):
+            content = content.replace("```json", "").replace("```", "").strip()
+
+        try:
+            parsed = json.loads(content)
+            return parsed
+        except json.JSONDecodeError as e:
+            print("[Gemini JSON ERROR]", e)
             return {"raw_text": content}
 
     except Exception as e:
@@ -110,6 +115,7 @@ same as it is above one after other.Each new scheme info should start on new lin
         import traceback
         traceback.print_exc()
         return {"error": "Failed to fetch recommendations."}
+
 
 def chat_about_schemes(question, user_data, schemes, history):
     try:
