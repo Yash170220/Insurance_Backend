@@ -8,3 +8,4 @@ httpx
 pytesseract
 pdf2image
 pillow
+transformers==4.39.3
