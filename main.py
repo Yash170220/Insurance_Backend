@@ -140,7 +140,7 @@ def extract_text_from_pdf(file_bytes):
 
 def summarize_text(text):
     try:
-        prompt = f"Summarize this insurance document in plain English.Just give main and important points.Limit words count to 300.If you detect any other other content than insurance dont further give suggestions just give that this is not insurance doc give another doc.:\n\n{text}"
+        prompt = f" Rule strictly to be followed:IF USER UPLOADS ANY OTHER FILE THAN INSURANCE RELATED CONTENT STRICTLY END THE SESSION THERE AND RESPOND THE USER TO UPLOAD OTHER DOCUMENT .If the previous rule is satisfied then only Summarize this insurance document in plain English.Just give main and important points.Limit words count to 300.If you detect any other other content than insurance dont further give suggestions just give that this is not insurance doc give another doc.:\n\n{text}"
         model = genai.GenerativeModel("gemini-1.5-pro")
 
         return model.generate_content(prompt).text
@@ -216,22 +216,40 @@ def analyze_reflection(text):
     try:
         prompt = f"""
         Analyze this reflection and return:
-        - An interesting and creative title
-        - 3 emotional keywords
-        - A short summary.Limit to 100 words.
+        {{
+          "title": "...",
+          "emotional_keywords": ["...", "...", "..."],
+          "summary": "..."
+        }}
 
         Text:
-{text}
-
-        Format:
-        {{"title": "...", "emotional_keywords": ["..."], "summary": "..."}}
+        {text}
         """
-        model = genai.GenerativeModel("gemini-1.5-pro")
+        model = genai.GenerativeModel("models/gemini-1.5-pro")
         response = model.generate_content(prompt)
-        return response.text
+
+        content = response.text.strip()
+
+        # Remove triple-backtick code block if present
+        if content.startswith("```json"):
+            content = content.replace("```json", "").replace("```", "").strip()
+
+        if not content:
+            print("[Reflection ERROR] Gemini returned empty content.")
+            return {"error": "Gemini returned no content."}
+
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            print("[Reflection ERROR] JSON decoding failed:", e)
+            return {"raw_text": content}
+
     except Exception as e:
         print("[Reflection ERROR]", str(e))
-        return "An error occurred while analyzing reflection."
+        return {"error": "An error occurred while analyzing reflection."}
+
+
+
 
 
 
@@ -312,4 +330,15 @@ async def analyze_prescription(file: UploadFile = File(...)):
 
 @app.post("/analyze-emotion", tags=["Journal"])
 def analyze_reflection_route(req: EmotionRequest):
-    return {"analysis": analyze_reflection(req.text)}
+    result = analyze_reflection(req.text)
+
+    if "error" in result:
+        return {"error": result["error"]}
+    
+    # If Gemini returned JSON inside `analysis`, unwrap it
+    if "analysis" in result:
+        return result["analysis"]
+    
+    # If Gemini returned directly usable structure
+    return result
+
