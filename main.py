@@ -82,7 +82,11 @@ Strictly return your response in the following JSON format and do not include an
   "gov_schemes": [{"name": "...", "description": "...", "link": "..."}],
   "discounts": [{"name": "...", "description": "...", "link": "..."}]
 }
-Limit the response to 500 words.
+Limit the response to 500 words. Please dont include asterick in final answer.And the structure of the ans shoould be :
+name:
+description:
+link:
+same as it is above one after other.Each new scheme info should start on new line and have nice spacing.
 """
     for key, value in user_info.items():
         prompt += f"- {key}: {value}\n"
@@ -141,7 +145,7 @@ def extract_text_from_pdf(file_bytes):
 
 def summarize_text(text):
     try:
-        prompt = f" Rule strictly to be followed:IF USER UPLOADS ANY OTHER FILE THAN INSURANCE RELATED CONTENT STRICTLY END THE SESSION THERE AND RESPOND THE USER TO UPLOAD OTHER DOCUMENT .If the previous rule is satisfied then only Summarize this insurance document in plain English.Just give main and important points.Limit words count to 300.If you detect any other other content than insurance dont further give suggestions just give that this is not insurance doc give another doc.:\n\n{text}"
+        prompt = f" Rule strictly to be followed:IF USER UPLOADS ANY OTHER FILE THAN INSURANCE RELATED CONTENT STRICTLY END THE SESSION THERE AND RESPOND THE USER TO UPLOAD OTHER DOCUMENT .If the previous rule is satisfied then only Summarize this insurance document in plain English.Just give main and important points.Limit words count to 300.If you detect any other other content than insurance dont further give suggestions just give that this is not insurance doc give another doc.Limit the word count to 200 words.Dont include asterick in final ans and have pretty good spacing.:\n\n{text}"
         model_gemini = genai.GenerativeModel("gemini-1.5-pro")
         return model_gemini.generate_content(prompt).text
     except Exception as e:
@@ -186,6 +190,7 @@ Return the result in JSON format as:
   }},
   ...
 ]
+every info should like medicine ,description should start on new line with good spacing.
 """
 
         model = genai.GenerativeModel("gemini-1.5-pro")
