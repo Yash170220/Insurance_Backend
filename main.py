@@ -10,7 +10,8 @@ import os
 import json
 from typing import List
 from PIL import Image
-import pytesseract # type: ignore
+from transformers import AutoProcessor, AutoModelForCausalLM  # Hugging Face
+import torch # type: ignore
 
 # Load API key from .env file
 load_dotenv(dotenv_path="./.env")
@@ -30,6 +31,10 @@ app.add_middleware(
 # In-memory store
 document_memory = {}
 scheme_chat_memory = {"user": None, "schemes": [], "history": []}
+
+# Load SmolDocling model
+processor = AutoProcessor.from_pretrained("ds4sd/SmolDocling-256M-preview")
+model = AutoModelForCausalLM.from_pretrained("ds4sd/SmolDocling-256M-preview")
 
 # ------------------- Models -------------------
 
@@ -58,14 +63,13 @@ class EmotionRequest(BaseModel):
 
 # ------------------- Utility Functions -------------------
 
-#Schemes
-
 def is_json(my_str):
     try:
         json_object = json.loads(my_str)
         return True
     except:
         return False
+
 async def get_recommendations(user_info: dict, schemes: list) -> dict:
     prompt = """
 You are an assistant that helps elderly citizens in the U.S. discover personalized benefits according to the state in which they reside.
@@ -88,16 +92,16 @@ Limit the response to 500 words.
         prompt += f"- {s['name']}: {s['description']}\n"
 
     try:
-        model = genai.GenerativeModel("gemini-1.5-pro")  # ? match your version
-        response = model.generate_content(prompt)
+        model_gemini = genai.GenerativeModel("gemini-1.5-pro")
+        response = model_gemini.generate_content(prompt)
         content = response.text.strip()
 
-        print("\n[Gemini RAW OUTPUT]\n", content)  # ? For debugging
+        print("\n[Gemini RAW OUTPUT]\n", content)
 
         if is_json(content):
             return json.loads(content)
         else:
-            return {"raw_text": content}  # fallback so app doesn't break
+            return {"raw_text": content}
 
     except Exception as e:
         print("[Gemini ERROR]", str(e))
@@ -115,8 +119,8 @@ def chat_about_schemes(question, user_data, schemes, history):
         for role, message in history:
             prompt += f"{role}: {message}\n"
         prompt += f"User: {question}\nAI:"
-        model = genai.GenerativeModel("gemini-1.5-pro")
-        return model.generate_content(prompt).text
+        model_gemini = genai.GenerativeModel("gemini-1.5-pro")
+        return model_gemini.generate_content(prompt).text
     except Exception as e:
         print("[Scheme Chat ERROR]", str(e))
         return "An error occurred during the scheme chat."
@@ -129,7 +133,6 @@ def load_schemes():
             "description": "Health coverage for seniors above 65.",
             "eligibility_criteria": "Age > 65, Income < $2000"
         },
-        # Add more schemes as needed
     ]
 
 #Insurance
@@ -141,9 +144,8 @@ def extract_text_from_pdf(file_bytes):
 def summarize_text(text):
     try:
         prompt = f" Rule strictly to be followed:IF USER UPLOADS ANY OTHER FILE THAN INSURANCE RELATED CONTENT STRICTLY END THE SESSION THERE AND RESPOND THE USER TO UPLOAD OTHER DOCUMENT .If the previous rule is satisfied then only Summarize this insurance document in plain English.Just give main and important points.Limit words count to 300.If you detect any other other content than insurance dont further give suggestions just give that this is not insurance doc give another doc.:\n\n{text}"
-        model = genai.GenerativeModel("gemini-1.5-pro")
-
-        return model.generate_content(prompt).text
+        model_gemini = genai.GenerativeModel("gemini-1.5-pro")
+        return model_gemini.generate_content(prompt).text
     except Exception as e:
         print("[Gemini ERROR]", str(e))
         return "An error occurred while summarizing."
@@ -154,64 +156,27 @@ def chat_with_context(question, doc_text, history):
         for role, message in history:
             prompt += f"{role}: {message}\n"
         prompt += f"User: {question}\nAI:"
-        model = genai.GenerativeModel("gemini-1.5-pro")
-
-        return model.generate_content(prompt).text
+        model_gemini = genai.GenerativeModel("gemini-1.5-pro")
+        return model_gemini.generate_content(prompt).text
     except Exception as e:
         print("[Chat ERROR]", str(e))
         return "An error occurred during chat."
-    
-#Prescription
 
-def analyze_prescription_text(text):
+#Prescription using SmolDocling
+
+def analyze_prescription_with_smoldocling(file_bytes):
     try:
-        prompt = f"""
-        Analyze the following prescription content and return a list of medicines with:
-        - medicine name
-        - one-line description about the medicine , why we take it 
-        - when to take. just when to take eg:Before breakfast,after lunch, etc.
-        - instructions in one sentences about how to consume the medicine properly.
-
-        Prescription:
-{text}
-
-        Format:
-        [
-          {{"medicine": "...", "description": "...", "timing": "...", "instructions": "..."}},
-          ...
-        ]
-        """
-        model = genai.GenerativeModel("gemini-1.5-pro")
-
-        response = model.generate_content(prompt)
-        return response.text
+        image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+        pixel_values = processor(images=image, return_tensors="pt").pixel_values
+        generated_ids = model.generate(pixel_values, max_new_tokens=512)
+        response = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        return response.strip()
     except Exception as e:
-        print("[Prescription ERROR]", str(e))
-        return "An error occurred during prescription analysis."
-    
-def extract_text_from_image_bytes(image_bytes):
-    try:
-        image = Image.open(io.BytesIO(image_bytes)).convert("L")  # Convert to grayscale
-        custom_config = r'--oem 3 --psm 6'
-        text = pytesseract.image_to_string(image, config=custom_config)
-        return text.strip()
-    except Exception as e:
-        print("[OCR ERROR]", e)
-        return ""
+        print("[SmolDocling ERROR]", str(e))
+        return "An error occurred while analyzing prescription."
 
+#Journal
 
-def extract_text_from_pdf_with_fallback(file_bytes):
-    text = extract_text_from_pdf(file_bytes)
-    if not text:  # fallback to image extraction
-        images = convert_from_bytes(file_bytes)
-        all_text = ""
-        for img in images:
-            all_text += pytesseract.image_to_string(img)
-        return all_text.strip()
-    return text
-
-
-#Journal   
 def analyze_reflection(text):
     try:
         prompt = f"""
@@ -225,12 +190,10 @@ def analyze_reflection(text):
         Text:
         {text}
         """
-        model = genai.GenerativeModel("models/gemini-1.5-pro")
-        response = model.generate_content(prompt)
+        model_gemini = genai.GenerativeModel("models/gemini-1.5-pro")
+        response = model_gemini.generate_content(prompt)
 
         content = response.text.strip()
-
-        # Remove triple-backtick code block if present
         if content.startswith("```json"):
             content = content.replace("```json", "").replace("```", "").strip()
 
@@ -247,11 +210,6 @@ def analyze_reflection(text):
     except Exception as e:
         print("[Reflection ERROR]", str(e))
         return {"error": "An error occurred while analyzing reflection."}
-
-
-
-
-
 
 # ------------------- Routes -------------------
 
@@ -302,43 +260,22 @@ def chat(req: ChatRequest):
     history.append(("AI", answer))
     return {"answer": answer}
 
-#Prescription
-
+#Prescription using SmolDocling
 @app.post("/analyze-prescription", tags=["Pres"])
 async def analyze_prescription(file: UploadFile = File(...)):
     try:
         content = await file.read()
-
-        # Step 1: Extract text (either from image or fallback from pdf)
-        if file.content_type == "application/pdf":
-            from pdf2image import convert_from_bytes
-            text = extract_text_from_pdf_with_fallback(content)
-        else:
-            text = extract_text_from_image_bytes(content)
-
-        if not text:
-            return {"error": "Could not extract any text from the file."}
-
-        # Step 2: Analyze using Gemini
-        result = analyze_prescription_text(text)
+        result = analyze_prescription_with_smoldocling(content)
         return {"medications": result}
-
     except Exception as e:
         return {"error": str(e)}
-    
-#Journal
 
+#Journal
 @app.post("/analyze-emotion", tags=["Journal"])
 def analyze_reflection_route(req: EmotionRequest):
     result = analyze_reflection(req.text)
-
     if "error" in result:
         return {"error": result["error"]}
-    
-    # If Gemini returned JSON inside `analysis`, unwrap it
     if "analysis" in result:
         return result["analysis"]
-    
-    # If Gemini returned directly usable structure
     return result
-
