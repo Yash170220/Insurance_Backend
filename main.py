@@ -36,12 +36,13 @@ scheme_chat_memory = {"user": None, "schemes": [], "history": []}
 # ------------------- Models -------------------
 
 class UserInfo(BaseModel):
+    name: str = Field(...)
     age: int = Field(...)
-    income: float = Field(...)
-    veteran_status: bool = Field(...)
-    disability_status: bool = Field(...)
+    incomeRange: str = Field(...)
+    veteranStatus: bool = Field(...)
+    disabilityStatus: bool = Field(...)
     location: str = Field(...)
-    employement_status: str = Field(...)
+    employmentStatus: bool = Field(...)
 
 class Scheme(BaseModel):
     scheme_id: str
