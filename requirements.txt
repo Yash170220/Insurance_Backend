@@ -4,3 +4,7 @@ python-dotenv
 google-generativeai==0.3.2
 PyMuPDF
 python-multipart
+httpx
+pytesseract
+pdf2image
+pillow
